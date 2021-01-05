@@ -1,55 +1,51 @@
-use warp::{http, Filter};
+use actix_web::{post, App, web, HttpResponse, HttpServer, Error, error};
+use futures::StreamExt;
 
+// maximum payload is 256M
+const MAX_SIZE: usize = 268_435_456;
+
+#[post("/classify")]
 async fn classify_image(
-    bytes: bytes::Bytes
-) -> Result<impl warp::Reply, warp::Rejection> {
-    println!("bytes: {:?}", bytes);
+    mut payload: web::Payload
+) -> Result<HttpResponse, Error> {
+    let mut body = web::BytesMut::new();
+
+    while let Some(chunk) = payload.next().await {
+        let chunk = chunk?;
+
+        if (body.len() + chunk.len()) > MAX_SIZE {
+            return Err(error::ErrorBadRequest("overflow"));
+        }
+        body.extend_from_slice(&chunk);
+    }
 
     let mut sess: vaccel_bindings::vaccel_session = Default::default();
     if vaccel_bindings::new_session(&mut sess, 0).is_err() {
-        return Ok(warp::reply::with_status(
-                "Could not create vaccel session",
-                http::StatusCode::INTERNAL_SERVER_ERROR
-        ));
+        return Err(error::ErrorBadRequest("Could not create vaccel session"));
     }
 
-    let mut text = String::with_capacity(512);
-    let mut imagepath = String::with_capacity(512);
+    let text = String::with_capacity(512);
+    let imagepath = String::with_capacity(512);
 
     if vaccel_bindings::image_classification(
         &mut sess,
-        bytes.borrow_mut(),
-        text.as_mut_vec(),
-        imagepath.as_mut_vec(),
+        &mut body,
+        &mut text.into_bytes(),
+        &mut imagepath.into_bytes(),
     ).is_err() {
-        return Ok(warp::reply::with_status(
-                "classification op failed",
-                http::StatusCode::INTERNAL_SERVER_ERROR
-        ));
+        return Err(error::ErrorBadRequest("Classification operations failed"));
     }
 
-    Ok(warp::reply::with_status(
-            text.as_str(),
-            http::StatusCode::CREATED
-    ))
+    Ok(HttpResponse::Ok().body("Yoopee"))
 }
 
-fn post_bytes() -> impl Filter<Extract = (bytes::Bytes,), Error = warp::Rejection> + Clone {
-    warp::body::content_length_limit(32 * 1024 * 1024)
-        .and(warp::body::bytes())
-}
-
-#[tokio::main]
-async fn main() {
-    // GET /classify
-    let classify = warp::post()
-        .and(warp::path("classify"))
-        .and(warp::path::end())
-        .and(warp::body::content_length_limit(32 * 1024 * 1024))
-        .and(post_bytes())
-        .and_then(classify_image);
-
-    warp::serve(classify)
-        .run(([127, 0, 0, 1], 3030))
-        .await;
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .service(classify_image)
+    })
+    .bind("127.0.0.1:3030")?
+        .run()
+        .await
 }
