@@ -1,0 +1,68 @@
+FROM ubuntu:latest as vaccel-builder
+
+ENV DEBIAN_FRONTEND="noninteractive"
+
+RUN apt-get update && apt-get install -y git cmake g++
+
+RUN git clone https://github.com/cloudkernels/virtio-accel.git && \
+    cp virtio-accel/accel.h /usr/local/include
+
+RUN git clone https://github.com/cloudkernels/vaccelrt.git && \
+    mkdir vaccelrt/build && \
+    cd vaccelrt/build && \
+    cmake .. \ 
+       -DCMAKE_BUILD_TYPE=Release \
+       -DBUILD_PLUGIN_VIRTIO=ON && \
+    make install
+
+FROM rust:1.43 as builder
+
+ENV PKG_CONFIG_PATH=/usr/local/share
+
+COPY --from=vaccel-builder /usr/local/lib/libvaccel* /usr/local/lib/
+COPY --from=vaccel-builder /usr/local/include/* /usr/local/include/
+COPY --from=vaccel-builder /usr/local/share/vaccel.pc /usr/local/share/
+
+RUN apt-get update && apt-get install -y \
+        clang \
+        libclang-dev \
+        llvm-dev
+
+RUN USER=root cargo new --bin web-classify
+WORKDIR ./web-classify
+COPY ./Cargo.toml ./Cargo.toml
+RUN cargo build --release
+RUN rm src/*.rs
+
+ADD . ./
+
+RUN rm -f ./target/release/deps/web-classify*
+RUN cargo build --release
+
+FROM debian:buster-slim
+ARG APP=/usr/src/app
+
+RUN apt-get update \
+    && apt-get install -y ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+EXPOSE 3030
+
+ENV TZ=Etc/UTC \
+    APP_USER=appuser
+
+RUN groupadd $APP_USER \
+    && useradd -g $APP_USER $APP_USER \
+    && mkdir -p ${APP}
+
+COPY --from=builder /web-classify/target/release/web-classify ${APP}/web-classify
+COPY --from=builder /usr/local/lib/libvaccel* /lib/
+
+RUN chown -R $APP_USER:$APP_USER ${APP}
+
+USER $APP_USER
+WORKDIR ${APP}
+
+ENV VACCEL_BACKENDS=/lib/libvaccel-virtio.so 
+ENV RUST_LOG=debug
+CMD ["./web-classify"]
