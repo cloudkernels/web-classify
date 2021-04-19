@@ -12,7 +12,8 @@ futures = "0.3"
 bytes = "0.5.6"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "0.2", features = ["macros"] }
-vaccel-bindings = { git = "https://github.com/bchalios/vaccel-bindings", branch = "master" }
+vaccel-bindings = { git = "https://github.com/cloudkernels/vaccel-bindings", branch = "master" }
+derive_more = "0.99.13"
 ascii = "1"
 hostname = "^0.3"
 log = "0.4"
