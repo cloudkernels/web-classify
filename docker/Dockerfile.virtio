@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y git cmake g++
 RUN git clone https://github.com/cloudkernels/virtio-accel.git && \
     cp virtio-accel/accel.h /usr/local/include
 
-RUN git clone https://github.com/cloudkernels/vaccelrt.git && \
+RUN git clone --recursive https://github.com/cloudkernels/vaccelrt.git -b fix_gcc_warns && \
     mkdir vaccelrt/build && \
     cd vaccelrt/build && \
     cmake .. \ 
